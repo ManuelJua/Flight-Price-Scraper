@@ -2,7 +2,22 @@ from playwright.sync_api import sync_playwright, Playwright, TimeoutError as Pla
 from time import sleep
 from datetime import datetime, timedelta
 import logging
+import pandas as pd
 
+def info_to_csv(new_flight_info):
+    try:
+        flights_df=pd.read_csv('flights_info.csv')
+        updated_flights_df=pd.concat([flights_df,pd.DataFrame(new_flight_info)])
+        logging.info(updated_flights_df)
+        updated_flights_df.to_csv('flights_info.csv',index=False)
+        return updated_flights_df
+    except FileNotFoundError as e:
+        print(e)
+        flights_df=pd.DataFrame(new_flight_info)
+        flights_df.to_csv('flights_info.csv',index=False)
+        logging.info(flights_df)
+        return flights_df
+   
 def select_flight_dates(page,outbound_date,inbound_date):
     page.locator("xpath=//input[@id='departureDate']").click()
     for flight_date in [outbound_date,inbound_date]:
@@ -78,8 +93,16 @@ def search_prices(playwright: Playwright, outbound_date, inbound_date, headless:
                 sleep(2)
             
             # Gets inbound and outbound flight prices
-            prices = page.locator("xpath=//span[@class='sc-aXZVg dxSNap latam-typography latam-typography--heading-06 sc-gEvEer fteAEG']").all_text_contents()
-            logging.info(f"{prices}, {outbound_date}, {inbound_date}")
+            outbound_price,inbound_price = page.locator("xpath=//span[@class='sc-aXZVg dxSNap latam-typography latam-typography--heading-06 sc-gEvEer fteAEG']").all_text_contents()
+            new_flights_info={
+                'outbound_date':[outbound_date],
+                'inbound_date':[inbound_date],
+                'outbound_price':[outbound_price],
+                'inbound_price':[inbound_price]
+            }
+            info_to_csv(new_flight_info=new_flights_info)
+            logging.info(f"outbound price: {outbound_price}, outbound date: {outbound_date}")
+            logging.info(f"inbound price: {inbound_price}, inbound date: {inbound_date}")
 
         not_successful = False
 
@@ -106,7 +129,7 @@ def main():
                 outbound_date, inbound_date = travel_dates(
                     start_period_date, travel_span=travel_span)
                 not_successful = search_prices(
-                    playwright, outbound_date=outbound_date, inbound_date=inbound_date, headless=False)
+                    playwright, outbound_date=outbound_date, inbound_date=inbound_date, headless=True)
                 finish_time = datetime.now()
                 logging.info(f"Script duration: {finish_time-start_time}")
 

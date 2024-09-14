@@ -19,23 +19,34 @@ def data_already_exists(outbound_date, inbound_date):
 # Checks if flights available on these dates
 def check_for_flights(page,outbound_date,inbound_date):
     try:
+        sleep(5)
         expect(page.locator(
             "//html/body/div[1]/div[1]/main/div/div/div[1]/img")).to_be_hidden(timeout=10)
         logging.info(f"No available flights for dates {outbound_date} and {inbound_date}")
         return False
-    except PlaywrightTimeoutError as e:
-        logging.info("TimeOutError from check_for_flights_function")
+    except Exception as e:
+        logging.info("Flights available")
         return True
     
 
 # Selects flights on the page
 def select_flights(page,outbound_date,inbound_date):
-    available_flights = check_for_flights(page,outbound_date,inbound_date)
-    if available_flights:
+    # available_flights = check_for_flights(page,outbound_date,inbound_date)
+    # if available_flights:
+    # Sorts by 'Cheaper' flights
+    try:
+        page.get_by_test_id("sort-by-dropdown-dropdown-select").click()
+        page.get_by_test_id("PRICE,asc--menuitem__label-content").click()
+
+        #Select flight time
         for _ in range(2):
             page.get_by_test_id("flight-info-0").click()
             page.get_by_test_id("bundle-detail-0-flight-select").click()
             sleep(2)
+        return True
+    except Exception as e:
+        logging.info(e)
+        return False
 
 # Determines whether to run the browser in headless mode based on the number of tries
 
@@ -99,6 +110,7 @@ def enter_location(page, field_id, location):
 
 # Searches for flight prices
 def search_prices(playwright: Playwright, outbound_date, inbound_date, headless: bool):
+    logging.info(f"Looking prices for dates {outbound_date} and {inbound_date}")
     try:
         start_url = "https://www.latamairlines.com/gb/en"
         chrome = playwright.chromium
@@ -126,37 +138,30 @@ def search_prices(playwright: Playwright, outbound_date, inbound_date, headless:
         # Clicks Search buttons
         page.locator("xpath=//button[@id='btnSearchCTA']").click()
 
-        # Sorts by 'Cheaper' flights
-        page.locator("xpath=//button[@class='sc-dUWDJJ eSbJeV']").click()
-        page.get_by_test_id("PRICE,asc--menuitem__label-content").click()
-
         # Selects outbound and inbound flights from list
-        select_flights(page,outbound_date=outbound_date,inbound_date=inbound_date)
-        not_successful = False
-
+        flights_found=select_flights(page,outbound_date=outbound_date,inbound_date=inbound_date)
+        
+        if flights_found:
         # Gets inbound and outbound flight prices
-        outbound_price, inbound_price = page.locator(
-            "xpath=//span[@class='sc-aXZVg dxSNap latam-typography latam-typography--heading-06 sc-gEvEer fteAEG']").all_text_contents()
-        new_flights_info = {
-            'outbound_date': [outbound_date],
-            'inbound_date': [inbound_date],
-            'outbound_price': [outbound_price],
-            'inbound_price': [inbound_price]
-        }
-        info_to_csv(new_flight_info=new_flights_info)
-        logging.info(
-            f"outbound price: {outbound_price}, outbound date: {outbound_date}")
-        logging.info(
-            f"inbound price: {inbound_price}, inbound date: {inbound_date}")
-
-        not_successful = False
+            outbound_price, inbound_price = page.locator(
+                "xpath=//span[@class='sc-aXZVg dxSNap latam-typography latam-typography--heading-06 sc-gEvEer fteAEG']").all_text_contents()
+            new_flights_info = {
+                'outbound_date': [outbound_date],
+                'inbound_date': [inbound_date],
+                'outbound_price': [outbound_price],
+                'inbound_price': [inbound_price]
+            }
+            info_to_csv(new_flight_info=new_flights_info)
+            logging.info(
+                f"outbound price: {outbound_price}, outbound date: {outbound_date}")
+            logging.info(
+                f"inbound price: {inbound_price}, inbound date: {inbound_date}")
 
     except PlaywrightTimeoutError as e:
         logging.info(e)
-        not_successful = True
+
     finally:
         browser.close()
-        return not_successful
 
 
 def main():
@@ -167,33 +172,30 @@ def main():
     # Initialize Playwright
     with sync_playwright() as playwright:
         # Define a list of travel spans (number of days)
-        travel_span_days = [14, 15, 16, 17, 18, 19]
+        travel_span_days = range(22,12,-1)
+
         for travel_span in travel_span_days:
             # Calculate start and finish dates based on today's date and booking availability
-            start_period_date = datetime.today().date()
+            start_period_date = datetime.today().date()+timedelta(days=1)
             finish_period_date = datetime.today().date() + timedelta(days=329 - travel_span - 1)
+
             while start_period_date < finish_period_date:
-                not_successful = True
-                try_count = 0
-                while not_successful:
-                    start_time = datetime.now()
-                    # Calculate outbound and inbound travel dates
-                    outbound_date, inbound_date = travel_dates(
-                        start_period_date, travel_span=travel_span)
-                    # Determine whether to run the browser in headless mode based on try count
-                    headless = check_number_of_tries(try_count)
-                    if not data_already_exists(outbound_date=outbound_date, inbound_date=inbound_date):
-                        # Search for flight prices
-                        not_successful = search_prices(
-                            playwright, outbound_date=outbound_date, inbound_date=inbound_date, headless=headless)
-                        finish_time = datetime.now()
-                        logging.info(
-                            f"Script duration: {finish_time - start_time}")
-                    else:
-                        logging.info(
-                            f"Data for dates: {outbound_date} and {inbound_date} already exists")
-                        not_successful = False
-                    try_count += 1
+                start_time = datetime.now()
+                # Calculate outbound and inbound travel dates
+                outbound_date, inbound_date = travel_dates(
+                    start_period_date, travel_span=travel_span)
+                
+                if not data_already_exists(outbound_date=outbound_date, inbound_date=inbound_date):
+                    # Search for flight prices
+                    search_prices(
+                        playwright, outbound_date=outbound_date, inbound_date=inbound_date, headless=True)
+                    finish_time = datetime.now()
+                    logging.info(
+                        f"Script duration: {finish_time - start_time}")
+                else:
+                    logging.info(
+                        f"Data for dates: {outbound_date} and {inbound_date} already exists")
+                    not_successful = False
 
                 start_period_date += timedelta(days=1)
 
